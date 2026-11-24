@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Sketch</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#f3f4f6;color:#20242b;font:15px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;background:white;border-bottom:1px solid #e3e5e8}h1{margin:0;font-size:19px;font-weight:650}.hint{color:#737985;font-size:13px}
+main{width:min(1100px,calc(100% - 32px));margin:24px auto;flex:1;display:flex;flex-direction:column;gap:12px}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;background:white;border:1px solid #e1e4e8;border-radius:12px}
+button{border:1px solid #d9dde3;background:#fff;color:#252a32;border-radius:8px;padding:9px 13px;font:inherit;cursor:pointer}button:hover:not(:disabled){background:#f4f6f8}button.active{background:#202a44;color:white;border-color:#202a44}button:disabled{opacity:.4;cursor:not-allowed}
+.divider{width:1px;height:28px;background:#e1e4e8;margin:0 3px}.canvas-wrap{position:relative;flex:1;min-height:420px;height:min(68vh,720px);overflow:hidden;background:white;border:1px solid #dfe3e8;border-radius:12px;box-shadow:0 5px 20px #202a440b}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}footer{text-align:center;padding:12px;color:#8a9099;font-size:12px}
+@media(max-width:560px){header{align-items:flex-start;flex-direction:column;gap:3px}main{width:calc(100% - 20px);margin:12px auto}.canvas-wrap{min-height:55vh;height:65vh}}
+</style>
+</head>
+<body>
+<header><h1>Simple Sketch</h1><div class="hint">Choose a tool, then click and drag on the canvas.</div></header>
+<main>
+<div class="toolbar" role="toolbar" aria-label="Drawing tools">
+<button type="button" class="active" data-tool="line" aria-pressed="true">／ Pencil</button>
+<button type="button" data-tool="circle" aria-pressed="false">○ Circle</button>
+<button type="button" data-tool="eraser" aria-pressed="false">▱ Eraser</button>
+<button type="button" data-tool="move" aria-pressed="false">✥ Move</button>
+<span class="divider" aria-hidden="true"></span>
+<button type="button" id="undo" disabled>↶ Undo</button>
+<button type="button" id="clear">Clear canvas</button>
+</div>
+<div class="canvas-wrap"><canvas id="board" aria-label="Drawing canvas"></canvas></div>
+</main>
+<footer>Grid squares are 1 × 1 units. Eraser deletes objects it touches; Circle always makes a perfect circle.</footer>
+<script>
+(() => {
+ const canvas=document.getElementById('board'),ctx=canvas.getContext('2d'),wrap=canvas.parentElement;
+ const buttons=[...document.querySelectorAll('[data-tool]')],undoButton=document.getElementById('undo');
+ const UNIT=50,INK='#20242b',ERASE_RADIUS=13;
+ let tool='line',drawing=false,active=null,selected=-1,moveOrigin=null,eraseLast=null,eraseChanged=false;
+ let objects=[],history=[];
+ function saveHistory(){history.push(JSON.stringify(objects));if(history.length>100)history.shift();undoButton.disabled=!history.length}
+ function undo(){if(!history.length)return;objects=JSON.parse(history.pop());selected=-1;redraw();undoButton.disabled=!history.length}
+ function resize(){const r=wrap.getBoundingClientRect(),dpr=Math.max(1,devicePixelRatio||1);canvas.width=Math.round(r.width*dpr);canvas.height=Math.round(r.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);redraw()}
+ function point(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(r.width,e.clientX-r.left)),y:Math.max(0,Math.min(r.height,e.clientY-r.top))}}
+ function setTool(next){tool=next;buttons.forEach(b=>{const on=b.dataset.tool===tool;b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on))});canvas.style.cursor=tool==='move'?'grab':tool==='eraser'?'cell':'crosshair'}
+ function drawGrid(w,h){ctx.save();ctx.strokeStyle='#e9edf2';ctx.lineWidth=1;ctx.beginPath();for(let x=.5;x<w;x+=UNIT){ctx.moveTo(x,0);ctx.lineTo(x,h)}for(let y=.5;y<h;y+=UNIT){ctx.moveTo(0,y);ctx.lineTo(w,y)}ctx.stroke();ctx.restore()}
+ function circleRadius(o){return Math.hypot(o.b.x-o.a.x,o.b.y-o.a.y)}
+ function drawObject(o){ctx.save();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();if(o.type==='circle'){ctx.arc(o.a.x,o.a.y,circleRadius(o),0,Math.PI*2)}else{ctx.moveTo(o.a.x,o.a.y);ctx.lineTo(o.b.x,o.b.y)}ctx.stroke();ctx.restore()}
+ function redraw(preview=null){const r=canvas.getBoundingClientRect();ctx.clearRect(0,0,r.width,r.height);ctx.save();ctx.beginPath();ctx.rect(0,0,r.width,r.height);ctx.clip();drawGrid(r.width,r.height);objects.forEach(drawObject);if(preview)drawObject(preview);if(selected>=0&&objects[selected]){const o=objects[selected],pad=8,rad=o.type==='circle'?circleRadius(o):0;let x1,x2,y1,y2;if(o.type==='circle'){x1=o.a.x-rad;x2=o.a.x+rad;y1=o.a.y-rad;y2=o.a.y+rad}else{x1=Math.min(o.a.x,o.b.x);x2=Math.max(o.a.x,o.b.x);y1=Math.min(o.a.y,o.b.y);y2=Math.max(o.a.y,o.b.y)}ctx.save();ctx.strokeStyle='#4779d8';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.strokeRect(x1-pad,y1-pad,x2-x1+2*pad,y2-y1+2*pad);ctx.restore()}ctx.restore()}
+ function pointSegmentDistance(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=l?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/l)):0;return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)}
+ function segmentsIntersect(a,b,c,d){const cross=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);const x1=cross(a,b,c),x2=cross(a,b,d),x3=cross(c,d,a),x4=cross(c,d,b);return x1*x2<=0&&x3*x4<=0}
+ function segmentDistance(a,b,c,d){if(segmentsIntersect(a,b,c,d))return 0;return Math.min(pointSegmentDistance(a,c,d),pointSegmentDistance(b,c,d),pointSegmentDistance(c,a,b),pointSegmentDistance(d,a,b))}
+ function eraserTouches(o,a,b){if(o.type==='line')return segmentDistance(a,b,o.a,o.b)<=ERASE_RADIUS+2;const radius=circleRadius(o),centerDistance=pointSegmentDistance(o.a,a,b);return Math.abs(centerDistance-radius)<=ERASE_RADIUS+2}
+ function eraseSegment(a,b){const before=objects.length;objects=objects.filter(o=>!eraserTouches(o,a,b));if(objects.length!==before){if(!eraseChanged){saveHistory();eraseChanged=true}if(selected>=objects.length)selected=-1;redraw()}}
+ function hitTest(p,o){if(o.type==='line')return pointSegmentDistance(p,o.a,o.b)<9;return Math.abs(Math.hypot(p.x-o.a.x,p.y-o.a.y)-circleRadius(o))<10}
+ buttons.forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+ document.getElementById('clear').addEventListener('click',()=>{if(!objects.length)return;saveHistory();objects=[];selected=-1;redraw()});
+ undoButton.addEventListener('click',undo);
+ canvas.addEventListener('pointerdown',e=>{e.preventDefault();canvas.setPointerCapture(e.pointerId);const p=point(e);drawing=true;
+  if(tool==='move'){selected=-1;for(let i=objects.length-1;i>=0;i--)if(hitTest(p,objects[i])){selected=i;break}if(selected>=0){saveHistory();moveOrigin=p;canvas.style.cursor='grabbing'}redraw();return}
+  if(tool==='eraser'){eraseLast=p;eraseChanged=false;eraseSegment(p,p);return}
+  active={type:tool,a:p,b:p};redraw(active);
+ });
+ canvas.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);
+  if(tool==='move'){if(selected>=0&&moveOrigin){const dx=p.x-moveOrigin.x,dy=p.y-moveOrigin.y,o=objects[selected];o.a.x+=dx;o.a.y+=dy;o.b.x+=dx;o.b.y+=dy;moveOrigin=p;redraw()}}
+  else if(tool==='eraser'){eraseSegment(eraseLast,p);eraseLast=p}
+  else if(active){active.b=p;redraw(active)}
+ });
+ function finish(e){if(!drawing)return;const p=point(e);
+  if(tool==='move'){if(selected>=0&&moveOrigin){/* movement is one undoable action */}moveOrigin=null;canvas.style.cursor='grab'}
+  else if(tool==='eraser'){if(eraseLast)eraseSegment(eraseLast,p);eraseLast=null}
+  else if(active){active.b=p;if(tool==='circle'){const dx=p.x-active.a.x,dy=p.y-active.a.y;const radius=Math.hypot(dx,dy);active.b={x:active.a.x+radius,y:active.a.y}}saveHistory();objects.push(active);active=null}
+  drawing=false;redraw()
+ }
+ canvas.addEventListener('pointerup',finish);canvas.addEventListener('pointercancel',finish);
+ new ResizeObserver(resize).observe(wrap);resize();
+})();
+</script>
+</body>
+</html>
